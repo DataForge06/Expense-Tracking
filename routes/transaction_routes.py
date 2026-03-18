@@ -18,11 +18,11 @@ from models.transaction_model import Transaction
 router = APIRouter(prefix="/api/transactions", tags=["Transactions"])
 
 # -------------------------
-# Add a new transaction
+# Add a new transaction (Includes user_email in body)
 # -------------------------
 @router.post("/", response_model=Transaction)
 async def add_transaction(transaction: Transaction = Body(...), db: AsyncIOMotorDatabase = Depends(get_db)):
-    # exclude={"id"} prevents manual ID injection
+    # The transaction model now requires user_email
     transaction_dict = transaction.dict(exclude={"id", "transaction_number"})
     
     inserted_id = await create_transaction(db, transaction_dict)
@@ -34,41 +34,58 @@ async def add_transaction(transaction: Transaction = Body(...), db: AsyncIOMotor
     raise HTTPException(status_code=500, detail="Could not save to database")
 
 # -------------------------
-# Get all transactions
+# Get all transactions (Filtered by user_email)
 # -------------------------
 @router.get("/", response_model=List[Transaction])
-async def fetch_transactions(db: AsyncIOMotorDatabase = Depends(get_db)):
-    transactions = await get_all_transactions(db)
+async def fetch_transactions(
+    user_email: str = Query(..., description="Email of the user"),
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    # Pass user_email to service to filter MongoDB results
+    transactions = await get_all_transactions(db, user_email)
     return serialize_docs(transactions)
 
 # -------------------------
 # Update transaction
 # -------------------------
 @router.put("/{transaction_number}")
-async def edit_transaction(transaction_number: int, data: dict = Body(...), db: AsyncIOMotorDatabase = Depends(get_db)):
-    # Pass the transaction_number to locate the record
+async def edit_transaction(
+    transaction_number: int, 
+    data: dict = Body(...), 
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    # Ensure user_email is present in the update data for security
+    if "user_email" not in data:
+        raise HTTPException(status_code=400, detail="user_email is required for updates")
+        
     updated = await update_transaction(db, transaction_number, data)
     
     if updated:
         return serialize_doc(updated)
-    raise HTTPException(status_code=404, detail="Transaction not found")
+    raise HTTPException(status_code=404, detail="Transaction not found or unauthorized")
 
 # -------------------------
-# Delete transaction
+# Delete transaction (Requires email for authorization)
 # -------------------------
 @router.delete("/{transaction_number}")
-async def remove_transaction(transaction_number: int, db: AsyncIOMotorDatabase = Depends(get_db)):
-    deleted = await delete_transaction(db, transaction_number)
+async def remove_transaction(
+    transaction_number: int, 
+    user_email: str = Query(..., description="Email of the owner"),
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    # Updated service must check if transaction belongs to this email before deleting
+    deleted = await delete_transaction(db, transaction_number, user_email)
     if deleted:
         return {"message": f"Transaction {transaction_number} deleted successfully"}
     else:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+        raise HTTPException(status_code=404, detail="Transaction not found or unauthorized")
 
 # -------------------------
-# Filter transactions
+# Filter transactions (Includes user_email in filter query)
 # -------------------------
 @router.get("/filter", response_model=List[Transaction])
 async def filter_transaction_route(
+    user_email: str = Query(..., description="Email of the user"),
     category: Optional[str] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
@@ -76,5 +93,6 @@ async def filter_transaction_route(
     max_amount: Optional[float] = Query(None),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
-    transactions = await filter_transactions(db, category, start_date, end_date, min_amount, max_amount)
-    return serialize_docs(transactions) 
+    # Filter now takes user_email as a mandatory field
+    transactions = await filter_transactions(db, user_email, category, start_date, end_date, min_amount, max_amount)
+    return serialize_docs(transactions)
