@@ -32,20 +32,21 @@ async def reset_month_route(
     month: int = Query(...), 
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
-    # This creates a pattern like "2026-03" to match your MongoDB screenshot format
-    month_str = f"{year}-{month:02d}"
+    # This creates a pattern like "2026-03" or "2026-3" 
+    # We use a regex that matches either format to be safe
+    month_padded = f"{month:02d}"
+    month_unpadded = f"{month}"
+    regex_pattern = f"^{year}-({month_padded}|{month_unpadded})"
     
-    # We clean the email to ensure no hidden spaces are breaking the match
     clean_email = user_email.strip().lower()
     
     query = {
         "user_email": clean_email,
-        "date": {"$regex": f"^{month_str}"}
+        "date": {"$regex": regex_pattern}
     }
     
-    logger.info(f"🚀 RESET TRIGGERED: Email={clean_email}, Pattern={month_str}")
+    logger.info(f"🚀 RESET ATTEMPT: Email={clean_email}, Regex={regex_pattern}")
 
-    # Access collections explicitly by name
     active_col = db["transactions"]
     history_col = db["history"]
 
@@ -53,47 +54,47 @@ async def reset_month_route(
     cursor = active_col.find(query)
     active_txs = await cursor.to_list(length=1000)
 
+    # 2. DEBUG: If still not found, try finding ANY transaction for this user 
+    # to see what their date format actually looks like in the logs
     if not active_txs:
-        logger.warning(f"❌ NO DATA FOUND: Tried to find records for {clean_email} starting with {month_str}")
+        debug_tx = await active_col.find_one({"user_email": clean_email})
+        if debug_tx:
+            logger.warning(f"❌ DATA MISMATCH: Found a tx for user, but date was {debug_tx.get('date')}")
+        else:
+            logger.warning(f"❌ USER NOT FOUND: No transactions at all for {clean_email}")
+            
         raise HTTPException(
             status_code=404, 
-            detail=f"No transactions found for {clean_email} in {month_str}"
+            detail=f"No transactions found for {clean_email} in month {month}"
         )
 
-    # 2. Prepare for Move (Remove MongoDB _id to prevent duplicate key errors)
+    # 3. Prepare for Move
     for tx in active_txs:
         tx.pop("_id", None)
 
     try:
-        # 3. Insert into History Collection
         await history_col.insert_many(active_txs)
-        
-        # 4. Delete from Active Transactions
-        await active_col.delete_many(query)
-        
-        logger.info(f"✅ SUCCESS: Moved {len(active_txs)} transactions to History.")
+        result = await active_col.delete_many(query)
+        logger.info(f"✅ SUCCESS: Moved {len(active_txs)} transactions.")
         return {"message": "Success", "count": len(active_txs)}
         
     except Exception as e:
-        logger.error(f"💥 DB ERROR during move: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to archive data.")
+        logger.error(f"💥 DB ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail="Database move failed")
 
 # ---------------------------------------------------------
-# 2. GET HISTORY DATA (For HistoryScreen.dart)
+# 2. GET HISTORY DATA
 # ---------------------------------------------------------
 @router.get("/history/{user_email}", response_model=List[Transaction])
 async def fetch_history(user_email: str, db: AsyncIOMotorDatabase = Depends(get_db)):
     clean_email = user_email.strip().lower()
     history_col = db["history"]
-    
-    # Return all archived data for this user, newest first
     cursor = history_col.find({"user_email": clean_email}).sort("date", -1)
     history_txs = await cursor.to_list(length=2000)
-    
     return serialize_docs(history_txs)
 
 # ---------------------------------------------------------
-# 3. DELETE HISTORY MONTH (From History Tab)
+# 3. DELETE HISTORY MONTH
 # ---------------------------------------------------------
 @router.delete("/history/{user_email}/delete_month")
 async def remove_history_month(
@@ -102,7 +103,7 @@ async def remove_history_month(
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     clean_email = user_email.strip().lower()
-    month_year = payload.get("month_year") # Expects e.g. "March 2026"
+    month_year = payload.get("month_year") 
     
     if not month_year:
         raise HTTPException(status_code=400, detail="month_year is required")
@@ -118,22 +119,21 @@ async def remove_history_month(
             "user_email": clean_email,
             "date": {"$regex": f"^{month_str}"}
         })
-        return {"message": f"Deleted {result.deleted_count} history records."}
+        return {"message": "Deleted"}
     except Exception:
-        raise HTTPException(status_code=400, detail="Format must be 'Month Year'")
+        raise HTTPException(status_code=400, detail="Invalid format")
 
 # ---------------------------------------------------------
-# 4. CLEAR ALL HISTORY (Wipe History Tab)
+# 4. CLEAR ALL HISTORY
 # ---------------------------------------------------------
 @router.delete("/history/{user_email}/clear_all")
 async def clear_history(user_email: str, db: AsyncIOMotorDatabase = Depends(get_db)):
-    clean_email = user_email.strip().lower()
     history_col = db["history"]
-    result = await history_col.delete_many({"user_email": clean_email})
-    return {"message": f"Deleted all {result.deleted_count} history records."}
+    result = await history_col.delete_many({"user_email": user_email.strip().lower()})
+    return {"message": "Cleared"}
 
 # ---------------------------------------------------------
-# BASIC CRUD ROUTES
+# CRUD ROUTES
 # ---------------------------------------------------------
 
 @router.post("/", response_model=Transaction)
@@ -147,7 +147,7 @@ async def add_transaction(transaction: Transaction = Body(...), db: AsyncIOMotor
 
 @router.get("/", response_model=List[Transaction])
 async def fetch_transactions(
-    user_email: str = Query(..., description="Email of the user"),
+    user_email: str = Query(...),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     transactions = await get_all_transactions(db, user_email.strip().lower())
@@ -160,19 +160,5 @@ async def remove_transaction(
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     deleted = await delete_transaction(db, transaction_number, user_email.strip().lower())
-    if deleted:
-        return {"message": "Deleted"}
+    if deleted: return {"message": "Deleted"}
     raise HTTPException(status_code=404, detail="Not found")
-
-@router.get("/filter", response_model=List[Transaction])
-async def filter_transaction_route(
-    user_email: str = Query(...),
-    category: Optional[str] = Query(None),
-    start_date: Optional[datetime] = Query(None),
-    end_date: Optional[datetime] = Query(None),
-    min_amount: Optional[float] = Query(None),
-    max_amount: Optional[float] = Query(None),
-    db: AsyncIOMotorDatabase = Depends(get_db)
-):
-    transactions = await filter_transactions(db, user_email.strip().lower(), category, start_date, end_date, min_amount, max_amount)
-    return serialize_docs(transactions)
