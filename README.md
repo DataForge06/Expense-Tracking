@@ -1,5 +1,6 @@
-Looking for the app?
-Download the latest stable version here: v1.1.0 - Latest APK✨:
+Bot-Expense Tracker APK✨:
+
+
 Key Features🔐:
 
 Secure User IsolationPrivate Accounts: Every user logs in with their email, creating a completely isolated data environment.Strict Filtering: The backend ensures that User A can never see or modify User B’s data.
