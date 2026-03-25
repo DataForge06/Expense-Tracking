@@ -18,81 +18,117 @@ from models.transaction_model import Transaction
 router = APIRouter(prefix="/api/transactions", tags=["Transactions"])
 
 # -------------------------
-# Add a new transaction (Includes user_email in body)
+# 1. RESET MONTHLY DATA (Move Active -> History)
 # -------------------------
+@router.delete("/reset-month")
+async def reset_month_route(
+    user_email: str = Query(...), 
+    year: int = Query(...), 
+    month: int = Query(...), 
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    # Calculate date range for the month
+    start_date = datetime(year, month, 1)
+    if month == 12:
+        end_date = datetime(year + 1, 1, 1)
+    else:
+        end_date = datetime(year, month + 1, 1)
+
+    # 1. Find transactions in 'transactions' collection
+    query = {
+        "user_email": user_email,
+        "date": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()}
+    }
+    
+    cursor = db.transactions.find(query)
+    active_txs = await cursor.to_list(length=1000)
+
+    if not active_txs:
+        raise HTTPException(status_code=404, detail="No active transactions found for this month.")
+
+    # 2. Move to 'history' collection
+    # We remove the MongoDB _id so it can be re-inserted cleanly into history
+    for tx in active_txs:
+        tx.pop("_id", None)
+
+    await db.history.insert_many(active_txs)
+
+    # 3. Wipe from 'transactions' collection
+    await db.transactions.delete_many(query)
+
+    return {"message": f"Successfully moved {len(active_txs)} transactions to History."}
+
+# -------------------------
+# 2. GET HISTORY DATA
+# -------------------------
+@router.get("/history/{user_email}", response_model=List[Transaction])
+async def fetch_history(user_email: str, db: AsyncIOMotorDatabase = Depends(get_db)):
+    # Look into the 'history' collection specifically
+    cursor = db.history.find({"user_email": user_email}).sort("date", -1)
+    history_txs = await cursor.to_list(length=2000)
+    return serialize_docs(history_txs)
+
+# -------------------------
+# 3. DELETE HISTORY MONTH
+# -------------------------
+@router.delete("/history/{user_email}/delete_month")
+async def remove_history_month(
+    user_email: str, 
+    payload: dict = Body(...), 
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    month_year = payload.get("month_year") # "March 2026"
+    if not month_year:
+        raise HTTPException(status_code=400, detail="month_year is required")
+
+    # Split "March 2026" to get numerical month
+    parts = month_year.split(" ")
+    m_num = datetime.strptime(parts[0], "%B").month
+    y_num = int(parts[1])
+
+    start_date = datetime(y_num, m_num, 1)
+    end_date = datetime(y_num, m_num + 1, 1) if m_num < 12 else datetime(y_num + 1, 1, 1)
+
+    result = await db.history.delete_many({
+        "user_email": user_email,
+        "date": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()}
+    })
+    return {"message": f"Deleted {result.deleted_count} records from history."}
+
+# -------------------------
+# 4. CLEAR ALL HISTORY
+# -------------------------
+@router.delete("/history/{user_email}/clear_all")
+async def clear_history(user_email: str, db: AsyncIOMotorDatabase = Depends(get_db)):
+    result = await db.history.delete_many({"user_email": user_email})
+    return {"message": f"Cleared all {result.deleted_count} records."}
+
+# --- EXISTING ROUTES BELOW ---
+
 @router.post("/", response_model=Transaction)
 async def add_transaction(transaction: Transaction = Body(...), db: AsyncIOMotorDatabase = Depends(get_db)):
-    # The transaction model now requires user_email
     transaction_dict = transaction.dict(exclude={"id", "transaction_number"})
-    
     inserted_id = await create_transaction(db, transaction_dict)
-    
     if inserted_id:
         created = await get_transaction_by_id(db, inserted_id)
         return serialize_doc(created)
-    
     raise HTTPException(status_code=500, detail="Could not save to database")
 
-# -------------------------
-# Get all transactions (Filtered by user_email)
-# -------------------------
 @router.get("/", response_model=List[Transaction])
 async def fetch_transactions(
     user_email: str = Query(..., description="Email of the user"),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
-    # Pass user_email to service to filter MongoDB results
     transactions = await get_all_transactions(db, user_email)
     return serialize_docs(transactions)
 
-# -------------------------
-# Update transaction
-# -------------------------
-@router.put("/{transaction_number}")
-async def edit_transaction(
-    transaction_number: int, 
-    data: dict = Body(...), 
-    db: AsyncIOMotorDatabase = Depends(get_db)
-):
-    # Ensure user_email is present in the update data for security
-    if "user_email" not in data:
-        raise HTTPException(status_code=400, detail="user_email is required for updates")
-        
-    updated = await update_transaction(db, transaction_number, data)
-    
-    if updated:
-        return serialize_doc(updated)
-    raise HTTPException(status_code=404, detail="Transaction not found or unauthorized")
-
-# -------------------------
-# Delete transaction (Requires email for authorization)
-# -------------------------
 @router.delete("/{transaction_number}")
 async def remove_transaction(
     transaction_number: int, 
     user_email: str = Query(..., description="Email of the owner"),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
-    # Updated service must check if transaction belongs to this email before deleting
     deleted = await delete_transaction(db, transaction_number, user_email)
     if deleted:
         return {"message": f"Transaction {transaction_number} deleted successfully"}
-    else:
-        raise HTTPException(status_code=404, detail="Transaction not found or unauthorized")
-
-# -------------------------
-# Filter transactions (Includes user_email in filter query)
-# -------------------------
-@router.get("/filter", response_model=List[Transaction])
-async def filter_transaction_route(
-    user_email: str = Query(..., description="Email of the user"),
-    category: Optional[str] = Query(None),
-    start_date: Optional[datetime] = Query(None),
-    end_date: Optional[datetime] = Query(None),
-    min_amount: Optional[float] = Query(None),
-    max_amount: Optional[float] = Query(None),
-    db: AsyncIOMotorDatabase = Depends(get_db)
-):
-    # Filter now takes user_email as a mandatory field
-    transactions = await filter_transactions(db, user_email, category, start_date, end_date, min_amount, max_amount)
-    return serialize_docs(transactions)
+    raise HTTPException(status_code=404, detail="Transaction not found or unauthorized")
