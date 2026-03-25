@@ -27,29 +27,33 @@ async def reset_month_route(
     month: int = Query(...), 
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
-    # Calculate date range for the month
-    start_date = datetime(year, month, 1)
-    if month == 12:
-        end_date = datetime(year + 1, 1, 1)
-    else:
-        end_date = datetime(year, month + 1, 1)
-
-    # 1. Find transactions in 'transactions' collection
+    # This creates a pattern like "2026-03" to match your DB screenshot
+    month_str = f"{year}-{month:02d}"
+    
+    # Using $regex to find any date starting with "YYYY-MM"
+    # Added .strip() to user_email to prevent errors from accidental spaces
     query = {
-        "user_email": user_email,
-        "date": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()}
+        "user_email": user_email.strip(),
+        "date": {"$regex": f"^{month_str}"}
     }
     
+    # Log this so you can check Render Dashboard -> Logs
+    print(f"DEBUG: Running Reset for {user_email} on pattern {month_str}")
+
+    # 1. Find transactions in 'transactions' collection
     cursor = db.transactions.find(query)
     active_txs = await cursor.to_list(length=1000)
 
     if not active_txs:
-        raise HTTPException(status_code=404, detail="No active transactions found for this month.")
+        # We include the query details in the error so we can debug exactly why it failed
+        raise HTTPException(
+            status_code=404, 
+            detail=f"No active transactions found for {user_email} in {month_str}"
+        )
 
     # 2. Move to 'history' collection
-    # We remove the MongoDB _id so it can be re-inserted cleanly into history
     for tx in active_txs:
-        tx.pop("_id", None)
+        tx.pop("_id", None) # Remove ID to allow re-insertion
 
     await db.history.insert_many(active_txs)
 
@@ -63,8 +67,7 @@ async def reset_month_route(
 # -------------------------
 @router.get("/history/{user_email}", response_model=List[Transaction])
 async def fetch_history(user_email: str, db: AsyncIOMotorDatabase = Depends(get_db)):
-    # Look into the 'history' collection specifically
-    cursor = db.history.find({"user_email": user_email}).sort("date", -1)
+    cursor = db.history.find({"user_email": user_email.strip()}).sort("date", -1)
     history_txs = await cursor.to_list(length=2000)
     return serialize_docs(history_txs)
 
@@ -77,21 +80,21 @@ async def remove_history_month(
     payload: dict = Body(...), 
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
-    month_year = payload.get("month_year") # "March 2026"
+    month_year = payload.get("month_year") # Expects "March 2026"
     if not month_year:
         raise HTTPException(status_code=400, detail="month_year is required")
 
-    # Split "March 2026" to get numerical month
     parts = month_year.split(" ")
-    m_num = datetime.strptime(parts[0], "%B").month
-    y_num = int(parts[1])
-
-    start_date = datetime(y_num, m_num, 1)
-    end_date = datetime(y_num, m_num + 1, 1) if m_num < 12 else datetime(y_num + 1, 1, 1)
+    m_name = parts[0]
+    y_num = parts[1]
+    
+    # Convert "March" to "03"
+    m_num = datetime.strptime(m_name, "%B").month
+    month_str = f"{y_num}-{m_num:02d}"
 
     result = await db.history.delete_many({
-        "user_email": user_email,
-        "date": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()}
+        "user_email": user_email.strip(),
+        "date": {"$regex": f"^{month_str}"}
     })
     return {"message": f"Deleted {result.deleted_count} records from history."}
 
@@ -100,7 +103,7 @@ async def remove_history_month(
 # -------------------------
 @router.delete("/history/{user_email}/clear_all")
 async def clear_history(user_email: str, db: AsyncIOMotorDatabase = Depends(get_db)):
-    result = await db.history.delete_many({"user_email": user_email})
+    result = await db.history.delete_many({"user_email": user_email.strip()})
     return {"message": f"Cleared all {result.deleted_count} records."}
 
 # --- EXISTING ROUTES BELOW ---
