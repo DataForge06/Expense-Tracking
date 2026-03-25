@@ -1,27 +1,28 @@
-# database.py
 import os
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from dotenv import load_dotenv
-import ssl
 
-# 1. Load environment variables from the .env file
+# 1. Load environment variables
 load_dotenv()
 
 # 2. Retrieve MongoDB URI and Database Name
-# It is better to leave the default as None to catch connection errors early
+# Render will pull these from the Environment Group you created
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "expense_tracker")
 
-# 3. Validation: Check if the URI exists before attempting to connect
+# 3. Validation and Connection
 if not MONGO_URI:
-    print("CRITICAL ERROR: MONGO_URI not found in .env file.")
-    print("Ensure you have a .env file with MONGO_URI=mongodb+srv://...")
-    # For local development fallback if needed:
-    # MONGO_URI = "mongodb://localhost:27017/expense_tracker"
+    print("❌ CRITICAL ERROR: MONGO_URI not found. Check Render Environment Variables!")
 
-# 4. Create the MongoDB client
-# 'tlsAllowInvalidCertificates' can help if you face SSL/Certificate issues locally
-client = AsyncIOMotorClient(MONGO_URI)
+# 4. Create the MongoDB client with Production settings
+# tlsAllowInvalidCertificates is essential for some cloud network configurations
+client = AsyncIOMotorClient(
+    MONGO_URI,
+    tls=True,
+    tlsAllowInvalidCertificates=True, 
+    retryWrites=True,
+    serverSelectionTimeoutMS=5000  # Fails fast (5s) instead of hanging if URI is wrong
+)
 
 # 5. Get the database instance
 db = client[MONGO_DB_NAME]

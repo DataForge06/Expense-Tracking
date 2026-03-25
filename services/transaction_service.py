@@ -1,5 +1,6 @@
 from bson import ObjectId
 from datetime import datetime
+import calendar
 
 # FIX: Added this helper to ensure even single-fetch is secure
 async def get_transaction_by_id(db, inserted_id: str):
@@ -17,6 +18,7 @@ async def create_transaction(db, transaction: dict):
                 transaction["date"] = datetime.utcnow()
 
         user_email = transaction.get("user_email")
+        # Ensure transaction numbers are incremented per individual user
         last = await db.transactions.find({"user_email": user_email}).sort("transaction_number", -1).limit(1).to_list(length=1)
         
         transaction_number = (last[0]["transaction_number"] + 1) if last else 1
@@ -75,3 +77,23 @@ async def delete_transaction(db, transaction_number: int, user_email: str):
         "user_email": user_email
     })
     return result.deleted_count > 0
+
+# NEW: Monthly Reset Logic
+async def reset_monthly_data(db, user_email: str, year: int, month: int):
+    try:
+        # Calculate the start and end of the chosen month
+        start_date = datetime(year, month, 1)
+        last_day = calendar.monthrange(year, month)[1]
+        end_date = datetime(year, month, last_day, 23, 59, 59)
+
+        # Match user email and the specific date range
+        query = {
+            "user_email": user_email,
+            "date": {"$gte": start_date, "$lte": end_date}
+        }
+        
+        result = await db.transactions.delete_many(query)
+        return result.deleted_count
+    except Exception as e:
+        print(f"!!! DB ERROR in reset_monthly_data: {e} !!!")
+        raise e
