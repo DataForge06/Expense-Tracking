@@ -79,4 +79,7 @@ you have to create your own apk the backend is only for reference.
 
 I am active 2nd student trying to work on new projects too.
 Give me feedbacks on the latest release whosoever sees this repository, provide me feedback so I could work on app and my major project
+
+
+
 Give me Feedbacks on my Email: osontakke.46@gmail.com
