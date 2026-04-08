@@ -8,9 +8,10 @@ import firebase_admin
 from firebase_admin import credentials, auth
 from typing import Optional
 
+# 1. Load Environment Variables
 load_dotenv()
 
-# Initialize Firebase
+# 2. Initialize Firebase Admin
 firebase_config = os.getenv("FIREBASE_CONFIG")
 if firebase_config:
     try:
@@ -25,13 +26,14 @@ else:
         cred = credentials.Certificate(service_key_path)
         firebase_admin.initialize_app(cred)
 
-# Import routes
+# 3. Import routes
 from routes.transaction_routes import router as transaction_router
 from routes.calculator_routes import router as calculator_router
 from database import client
 
 app = FastAPI(title="Expense Tracker API")
 
+# 4. Add CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -40,8 +42,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Root route for Render Health Checks
-@app.get("/")
+# 5. Root route for Render Health Checks (Handles GET and HEAD to prevent 405 errors)
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return {"message": "Expense Tracker API is Live on Render! 🚀", "status": "Online"}
 
@@ -53,11 +55,12 @@ async def mongo_check():
     except Exception as e:
         return {"status": "fail", "error": str(e)}
 
+# 6. Include Routers
 app.include_router(transaction_router)
 app.include_router(calculator_router, prefix="/api/calculator", tags=["Calculator"])
 
 if __name__ == "__main__":
     # Render uses the PORT environment variable. 
-    # If not found, it MUST use 10000 for Render default, not 8000.
+    # Defaulting to 10000 ensures compatibility with Render's health checks.
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
