@@ -23,7 +23,7 @@ from models.transaction_model import Transaction
 router = APIRouter(prefix="/api/transactions", tags=["Transactions"])
 
 # ---------------------------------------------------------
-# 1. UPDATE TRANSACTION (The Fix for 405 & Update Errors)
+# 1. UPDATE TRANSACTION
 # ---------------------------------------------------------
 @router.put("/{transaction_number}")
 async def edit_transaction_route(
@@ -33,11 +33,9 @@ async def edit_transaction_route(
 ):
     logger.info(f"📝 UPDATE ATTEMPT: Transaction No.{transaction_number}")
     
-    # Ensure consistency by cleaning the email if it's in the body
     if "user_email" in data:
         data["user_email"] = data["user_email"].strip().lower()
 
-    # Call the service layer to update MongoDB
     updated = await update_transaction(db, transaction_number, data)
     
     if updated:
@@ -48,7 +46,7 @@ async def edit_transaction_route(
     raise HTTPException(status_code=404, detail="Transaction not found")
 
 # ---------------------------------------------------------
-# 2. RESET MONTHLY DATA (The Final Boss Fix)
+# 2. RESET MONTHLY DATA
 # ---------------------------------------------------------
 @router.delete("/reset-month")
 async def reset_month_route(
@@ -85,8 +83,6 @@ async def reset_month_route(
     active_txs = await cursor.to_list(length=1000)
 
     if not active_txs:
-        sample = await active_col.find_one({"user_email": clean_email})
-        logger.warning(f"❌ DATA NOT FOUND. DB Sample: {sample}")
         raise HTTPException(status_code=404, detail="No transactions found for this period.")
 
     for tx in active_txs:
@@ -110,6 +106,27 @@ async def fetch_history(user_email: str, db: AsyncIOMotorDatabase = Depends(get_
     cursor = db["history"].find({"user_email": clean_email}).sort("date", -1)
     history_txs = await cursor.to_list(length=2000)
     return serialize_docs(history_txs)
+
+# --- ADDED: DELETE SINGLE HISTORY TRANSACTION ---
+@router.delete("/history/{user_email}/{transaction_number}")
+async def delete_single_history_item(
+    user_email: str, 
+    transaction_number: int, 
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    logger.info(f"🗑️ DELETE HISTORY ATTEMPT: User={user_email}, No={transaction_number}")
+    
+    result = await db["history"].delete_one({
+        "user_email": user_email.strip().lower(),
+        "transaction_number": transaction_number
+    })
+
+    if result.deleted_count > 0:
+        logger.info(f"✅ HISTORY DELETE SUCCESS: No.{transaction_number}")
+        return {"message": "Deleted from history"}
+    
+    logger.warning(f"❌ HISTORY DELETE FAILED: No.{transaction_number} not found")
+    raise HTTPException(status_code=404, detail="History record not found")
 
 @router.delete("/history/{user_email}/clear_all")
 async def clear_history(user_email: str, db: AsyncIOMotorDatabase = Depends(get_db)):
