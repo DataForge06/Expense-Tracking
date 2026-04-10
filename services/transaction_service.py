@@ -78,7 +78,20 @@ async def delete_transaction(db, transaction_number: int, user_email: str):
     })
     return result.deleted_count > 0
 
-# NEW: Monthly Reset Logic
+# --- ADDED: DELETE SINGLE HISTORY TRANSACTION LOGIC ---
+async def delete_history_transaction(db, user_email: str, transaction_number: int):
+    try:
+        # We target the 'history' collection specifically here
+        result = await db["history"].delete_one({
+            "user_email": user_email.strip().lower(),
+            "transaction_number": transaction_number
+        })
+        return result.deleted_count > 0
+    except Exception as e:
+        print(f"!!! DB ERROR in delete_history_transaction: {e} !!!")
+        raise e
+
+# Monthly Reset Logic
 async def reset_monthly_data(db, user_email: str, year: int, month: int):
     try:
         # Calculate the start and end of the chosen month
