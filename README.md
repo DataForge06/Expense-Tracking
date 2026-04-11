@@ -22,36 +22,41 @@ Authentication System has been implimented
 
 Dark mode and Light Mode has been added
 
-Universal Engine Migration: The application has been rebuilt into a Universal FAT APK. It now contains native drivers for all mobile architectures (arm64-v8a, armeabi-v7a, and x86_64), ensuring a smooth installation on any Android device (v5.0 to v15).
+Universal Engine Migration: The application has been rebuilt into a Universal APK. It now contains native drivers for all mobile architectures (arm64-v8a, armeabi-v7a, and x86_64), ensuring a smooth installation on any Android device (v5.0 to v15).
 
 High-Contrast UI Overhaul: We have completely refined the typography and color palette. All text across Login, Sign-Up, and Dashboard screens is now darker and sharper, providing maximum readability in all lighting conditions.
 
 🚀 New Features:
 
-Smart Financial Vault (History): Introducing the History Archive. When you perform a "Monthly Reset," your data is no longer just cleared; it is intelligently migrated into a structured vault where you can review past spending by month and year.
+🚀 Bot Expense v2.2.1 — The Compatibility Update
+This release marks a significant milestone in our journey. We have officially rebranded from Expense Tracker AI to Bot Expense, optimized our database logic for high-traffic history management, and expanded hardware support for the latest flagship Android devices.
 
-Predictive Savings Analytics: The Home Screen now features a real-time Projection Bar. It analyzes your current spending velocity to predict your estimated balance at the end of the month.
+🏷️ Branding & UI Refresh
+New Identity: The application has been officially renamed to Bot Expense.
 
-Enhanced Data Isolation: We’ve upgraded our backend security to ensure 100% private data silos. Your financial records are strictly tied to your account and are inaccessible to any other user.
+Visual Overhaul: Updated the application launcher icon and splash screen branding.
 
-🛠️ Critical Bug Fixes:
+Contact Integration: Added a "Contact Us" portal in the 3-dot menu with full Dark Theme support.
 
-Resolved "No Transactions Found" (Reset Bug): Implemented a "Final Boss" query logic that identifies transactions regardless of whether the date was stored as a String or a Date Object.
+Title Consistency: Ensured the "Bot Expense" branding is consistent across the Home Screen and Android Manifest.
 
-Fixed "Update Error 405": Fully synchronized the Flutter PUT requests with the backend API. Editing transaction titles, amounts, or categories is now seamless and error-free.
+🛠️ Backend & Database Improvements
+History Management Fix: Resolved a critical 405 Method Not Allowed error by introducing a unique path for history item deletion.
 
-Email Case-Sensitivity Patch: Fixed a bug where varied capitalization in emails during login caused data duplication. All account data is now unified and case-insensitive.
+Route Prioritization: Restructured FastAPI routes to prevent path overlapping between active transactions and archived history.
 
-⚙️ Technical Specifications:
+Service Logic: Added delete_history_transaction to the service layer for secure, targeted record removal from the MongoDB history collection.
 
-Version: 2.1.0 (Stable)
+Security: Implemented forced email normalization (lowercase/trimmed) across all API endpoints to ensure data isolation.
 
-Build Size: ~50 MB (Includes all high-res assets and universal drivers).
+📱 Device Compatibility & Performance
+Samsung S-Series Support: Integrated NDK architecture filters to support 64-bit processors found in the Samsung S25 Ultra.
 
-Security: Integrated a real-time Password Strength Meter and Firebase-backed email verification.
+Modern OS Optimization: Fully tested and optimized for HyperOS, OxygenOS, and FuntouchOS.
 
-Backend: Optimized for low-latency performance using asynchronous MongoDB drivers.
+Universal Build: Shifted to a Fat APK (Universal) build strategy to ensure a single installer works on both high-end flagships and budget devices.
 
+Target SDK Update: Updated SDK requirements to support the latest Android 14 security standards.
 
 📦 Installation Guide, Users Navigate to the Releases section of this repository.
 
