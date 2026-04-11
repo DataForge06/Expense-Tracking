@@ -87,4 +87,4 @@ Give me feedbacks on the latest release whosoever sees this repository, provide 
 
 
 
-Give me Feedbacks on my Email: osontakke.46@gmail.com
+Give me Feedbacks on my Email: osisop7@gmail.com
