@@ -1,42 +1,43 @@
 import os
-import json
-import firebase_admin
-from firebase_admin import credentials
-from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker, declarative_base
 from dotenv import load_dotenv
 
 load_dotenv()
 
-MONGO_URI = os.getenv("MONGO_URI")
-MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "expense_tracker")
-FIREBASE_CONFIG_STR = os.getenv("FIREBASE_CONFIG")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-if not MONGO_URI:
-    print("❌ CRITICAL ERROR: MONGO_URI not found.")
+if not DATABASE_URL:
+    print("❌ CRITICAL ERROR: DATABASE_URL not found in .env")
+else:
+    # Ensure it uses asyncpg for async operations
+    if DATABASE_URL.startswith("postgresql://"):
+        DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
 
-# INCREASED serverSelectionTimeoutMS for Render
-client = AsyncIOMotorClient(
-    MONGO_URI,
-    tls=True,
-    tlsAllowInvalidCertificates=True, 
-    retryWrites=True,
-    serverSelectionTimeoutMS=30000  
+# Create Async Engine
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False, # Set to True if you want to see raw SQL queries in terminal
+    pool_pre_ping=True
 )
 
-db = client[MONGO_DB_NAME]
+# Create Session Local for ACID transactions
+AsyncSessionLocal = sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
 
-def get_db() -> AsyncIOMotorDatabase:
-    return db
+Base = declarative_base()
 
-# Initialize Firebase Securely
-if not firebase_admin._apps:
-    try:
-        if FIREBASE_CONFIG_STR:
-            firebase_dict = json.loads(FIREBASE_CONFIG_STR)
-            cred = credentials.Certificate(firebase_dict)
-            firebase_admin.initialize_app(cred)
-            print("✅ Firebase Connected Successfully via .env!")
-        else:
-            print("⚠️ FIREBASE_CONFIG not found in .env")
-    except Exception as e:
-        print(f"❌ Firebase Connection Error: {e}")
+# Dependency to get DB session
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit() # ATOMICITY: Saves only if no errors occurred
+        except Exception:
+            await session.rollback() # ROLLBACK: Reverts everything on error
+            raise

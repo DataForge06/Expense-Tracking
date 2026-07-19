@@ -1,23 +1,53 @@
-from pydantic import BaseModel, Field
+from sqlalchemy import Column, Integer, String, Float, DateTime, BigInteger
+from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+from database import Base
 
-class Transaction(BaseModel):
-    # Optional because MongoDB generates this via our service logic
+# ==========================================
+# 1. SQLALCHEMY ORM MODELS (Database Tables)
+# ==========================================
+class TransactionDB(Base):
+    __tablename__ = "transactions"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    transaction_number = Column(BigInteger, unique=True, index=True)
+    user_email = Column(String, index=True)
+    title = Column(String)
+    amount = Column(Float)
+    category = Column(String)
+    type = Column(String)
+    date = Column(DateTime, default=datetime.utcnow)
+    notes = Column(String, nullable=True)
+
+class HistoryDB(Base):
+    __tablename__ = "history"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    transaction_number = Column(BigInteger, unique=True, index=True)
+    user_email = Column(String, index=True)
+    title = Column(String)
+    amount = Column(Float)
+    category = Column(String)
+    type = Column(String)
+    date = Column(DateTime, default=datetime.utcnow)
+    notes = Column(String, nullable=True)
+
+# ==========================================
+# 2. PYDANTIC SCHEMAS (API Data Validation)
+# ==========================================
+class TransactionSchema(BaseModel):
     transaction_number: Optional[int] = None 
     title: str
     amount: float
     category: str
-    type: str  # e.g., "Income" or "Expense"
+    type: str  
     date: datetime
-    # CRITICAL: This links every record to the logged-in user
     user_email: str 
     notes: Optional[str] = None
 
     class Config:
-        # Allows compatibility with database row objects
-        from_attributes = True
-        # Ensures JSON conversion handles datetime correctly
+        from_attributes = True # Converts SQLAlchemy ORM models to JSON automatically
         json_encoders = {
             datetime: lambda v: v.isoformat()
         }

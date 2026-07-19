@@ -7,6 +7,7 @@ import json
 import firebase_admin
 from firebase_admin import credentials, auth
 from typing import Optional
+from sqlalchemy import text # For PostgreSQL health check
 
 # 1. Load Environment Variables
 load_dotenv()
@@ -19,6 +20,7 @@ if not firebase_admin._apps:
             cred_dict = json.loads(firebase_config)
             cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred)
+            print("🔥 Firebase Admin initialized successfully!")
         except Exception as e:
             print(f"❌ Error loading FIREBASE_CONFIG: {e}")
     else:
@@ -27,15 +29,16 @@ if not firebase_admin._apps:
         if os.path.exists(service_key_path):
             cred = credentials.Certificate(service_key_path)
             firebase_admin.initialize_app(cred)
+            print("🔥 Firebase initialized using local file!")
         else:
             print("⚠️ WARNING: No Firebase credentials found.")
 
-# 3. Import routes
+# 3. Import routes and NEW PostgreSQL Database Session
 from routes.transaction_routes import router as transaction_router
 from routes.calculator_routes import router as calculator_router
-from database import client
+from database import AsyncSessionLocal 
 
-app = FastAPI(title="Expense Tracker API")
+app = FastAPI(title="Bot Expense Tracker API")
 
 # 4. Add CORS Middleware
 app.add_middleware(
@@ -51,12 +54,14 @@ app.add_middleware(
 async def root():
     return {"message": "Expense Tracker API is Live on Render! 🚀", "status": "Online"}
 
-@app.get("/mongo-check")
-async def mongo_check():
+# NEW: PostgreSQL (Supabase) Health Check (Replaces mongo-check)
+@app.get("/postgres-check")
+async def postgres_check():
     try:
-        # Pinging MongoDB to verify connection
-        await client.admin.command("ping")
-        return {"status": "success", "message": "MongoDB is connected ✅"}
+        # Pinging Supabase to verify connection
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+        return {"status": "success", "message": "PostgreSQL (Supabase) is connected ✅"}
     except Exception as e:
         return {"status": "fail", "error": str(e)}
 
